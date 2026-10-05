@@ -5,10 +5,10 @@ Update **PROGRESS.md** (done / next / blocked) at the end of every work session.
 
 ## Checkpoint A (Lesson 9, Mon 05 Oct): queue up and visible
 
-- [ ] Virtual environment active, `.env` has your `UVA_ID`, and `python kit/smoke_test.py` prints `Emulator OK`
-- [ ] `populate_queue` POSTs to the scatter API and logs your queue URL
-- [ ] `get_counts` and `monitor_queue` log the visible, not visible and delayed counts until Delayed reaches 0
-- [ ] The flow run is **Completed** and visible in the Prefect dashboard; screenshot saved in `docs/`
+- [x] Virtual environment active, `.env` has your `UVA_ID`, and `python kit/smoke_test.py` prints `Emulator OK`
+- [x] `populate_queue` POSTs to the scatter API and logs your queue URL
+- [x] `get_counts` and `monitor_queue` log the visible, not visible and delayed counts until Delayed reaches 0
+- [x] The flow run is **Completed** and visible in the Prefect dashboard; screenshot saved in `docs/`
 - [ ] DAG sketch saved as `docs/dag.jpg`; polling strategy explained in your README
 - [ ] `PROGRESS.md` updated and everything pushed
 
