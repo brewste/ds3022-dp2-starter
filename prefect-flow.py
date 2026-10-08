@@ -22,6 +22,8 @@ import os
 import time
 
 import boto3
+import duckdb                       
+from dbt.cli.main import dbtRunner  
 import requests
 from dotenv import load_dotenv
 from prefect import flow, task, get_run_logger
@@ -77,14 +79,63 @@ def monitor_queue(queue_url: str, poll_s: int = 5,
     raise TimeoutError(f"Messages still delayed after {timeout_s} s")
 
 
-
-
-
 @task
-def collect_messages(queue_url: str, expected: int = 21) -> int:
+def prepare_landing() -> None:
+    with duckdb.connect(DUCKDB_PATH) as con:
+        con.execute("create schema if not exists raw")
+
+
+        # Use "if not exists" so restarting the flow does not erase fragments already stored.
+        # Make order_no the primary key since each fragment has a unique order number
+        # Prevents the same fragment from being stored duplicate after a crash
+        con.execute("create table if not exists raw.fragments ("
+                    "order_no varchar primary key,"
+                    "word varchar, "
+                    "received_at timestamp)")
+        
+        
+
+
+def stored_count(con) -> int:
+    return con.execute("select count(distinct order_no) "
+                       "from raw.fragments").fetchone()[0]
+
+
+@task  
+def collect_messages(queue_url: str, expected: int = 21,
+                     timeout_s: int = 1200) -> int:
     """Receive, land in DuckDB, then delete. Return how many fragments are stored."""
     # TODO (Checkpoint B): MessageAttributeNames=["All"] and resp.get("Messages", [])
-    raise NotImplementedError
+
+    logger = get_run_logger()
+    deadline = time.monotonic() + timeout_s
+    with duckdb.connect(DUCKDB_PATH) as con:
+        while time.monotonic() < deadline:
+            stored, c = stored_count(con), get_counts(queue_url)
+            logger.info("stored %d/%d | visible=%d in_flight=%d delayed=%d",
+                        stored, expected, c["visible"],
+                        c["in_flight"], c["delayed"])
+            if stored >= expected and sum(c.values()) == 0:
+                return stored
+            resp = sqs.receive_message(QueueUrl=queue_url,
+                                       MaxNumberOfMessages=10,
+                                       MessageAttributeNames=["All"],
+                                       WaitTimeSeconds=10)
+            for msg in resp.get("Messages", []):
+                a = msg["MessageAttributes"]
+
+                con.execute("insert or ignore into raw.fragments "  # Ignore duplicates in case a message was stored but not deleted before a crash
+                            "values (?, ?, current_timestamp)",
+                            [a["order_no"]["StringValue"],
+                             a["word"]["StringValue"]])
+                
+                
+                sqs.delete_message(QueueUrl=queue_url,
+                                   ReceiptHandle=msg["ReceiptHandle"])
+        stored = stored_count(con)
+    raise TimeoutError(f"Only {stored}/{expected} fragments "
+                       f"after {timeout_s} s")
+
 
 
 @task
