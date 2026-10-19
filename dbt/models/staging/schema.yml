@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: stg_fragments
+    columns:
+
+      - name: order_no
+        tests:
+          - not_null
+          - unique
+
+      - name: word
+        tests:
+          - not_null
