@@ -156,21 +156,38 @@ def dbt_build() -> None:
     get_run_logger().info("dbt build passed: all tests green")
 
 
-    raise NotImplementedError
 
 
 @task
 def read_phrase() -> str:
     """Read the phrase from the dbt mart model in DuckDB."""
-    # TODO (Checkpoint C)
-    raise NotImplementedError
+
+    logger = get_run_logger()
+
+    with duckdb.connect(DUCKDB_PATH) as con:
+        result = con.execute(
+            "SELECT phrase FROM assembled_phrase"
+        ).fetchone()
+
+    phrase = result[0]
+    logger.info("Assembled phrase: %s", phrase)
+
+    return phrase
 
 
 @task
-def submit_solution(phrase: str, platform: str = "prefect") -> int:
-    """Send to dp2-submit with uvaid / phrase / platform attributes. Return the HTTP status code."""
-    # TODO (Checkpoint D)
-    raise NotImplementedError
+def send_solution(uvaid, phrase, platform):
+    url = sqs.get_queue_url(QueueName="dp2-submit")["QueueUrl"]
+    response = sqs.send_message(
+        QueueUrl=url,
+        MessageBody="dp2 solution",
+        MessageAttributes={
+            "uvaid":    {"DataType": "String", "StringValue": uvaid},
+            "phrase":   {"DataType": "String", "StringValue": phrase},
+            "platform": {"DataType": "String", "StringValue": platform},
+        },
+    )
+
 
 
 @flow(name="dp2-pipeline", log_prints=True)
