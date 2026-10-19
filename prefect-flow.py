@@ -84,16 +84,13 @@ def prepare_landing() -> None:
     with duckdb.connect(DUCKDB_PATH) as con:
         con.execute("create schema if not exists raw")
 
-        # Use "if not exists" so restarting the flow does not erase fragments already stored.
-        # Make order_no the primary key since each fragment has a unique order number
-        # Prevents the same fragment from being stored duplicate after a crash
-        con.execute("create table if not exists raw.fragments ("
-                    "order_no varchar primary key,"
-                    "word varchar, "
-                    "received_at timestamp)")
-        
-        
-
+        con.execute("""
+            create or replace table raw.fragments (
+                order_no varchar,
+                word varchar,
+                received_at timestamp
+            )
+        """)
 
 def stored_count(con) -> int:
     return con.execute("select count(distinct order_no) "
@@ -128,16 +125,27 @@ def collect_messages(queue_url: str, expected: int = 21,
             for msg in resp.get("Messages", []):
                 a = msg["MessageAttributes"]
 
-                con.execute("insert or ignore into raw.fragments "  # Ignore duplicates in case a message was stored but not deleted before a crash
-                            "values (?, ?, current_timestamp)",
-                            [a["order_no"]["StringValue"],
-                             a["word"]["StringValue"]])
-                
-                
+                order_no = a["order_no"]["StringValue"]
+                word = a["word"]["StringValue"]
+
+                # If a message was previously stored but not deleted before a crash,
+                # do not store the same order number again when SQS redelivers it.
+                con.execute("""
+                    insert into raw.fragments
+                    select ?, ?, current_timestamp
+                    where not exists (
+                        select 1
+                        from raw.fragments
+                        where order_no = ?
+                    )
+                """, [order_no, word, order_no])
+                        
                 #Delete each message using its ReceiptHandle after storing it
                 sqs.delete_message(QueueUrl=queue_url,
-                                   ReceiptHandle=msg["ReceiptHandle"])
+                                    ReceiptHandle=msg["ReceiptHandle"])
+        
         stored = stored_count(con)
+    
     raise TimeoutError(f"Only {stored}/{expected} fragments "
                        f"after {timeout_s} s")
 
@@ -175,25 +183,31 @@ def read_phrase() -> str:
     return phrase
 
 
-@task
+@task(retries=2, retry_delay_seconds=5)
 def send_solution(uvaid, phrase, platform):
     url = sqs.get_queue_url(QueueName="dp2-submit")["QueueUrl"]
-    response = sqs.send_message(
-        QueueUrl=url,
-        MessageBody="dp2 solution",
+    resp = sqs.send_message(
+        QueueUrl=url, MessageBody="dp2 solution",
         MessageAttributes={
-            "uvaid":    {"DataType": "String", "StringValue": uvaid},
+            "uvaid":    {"DataType": "String", "StringValue": UVA_ID},
             "phrase":   {"DataType": "String", "StringValue": phrase},
-            "platform": {"DataType": "String", "StringValue": platform},
-        },
-    )
+            "platform": {"DataType": "String", "StringValue": platform}})
+    status = resp["ResponseMetadata"]["HTTPStatusCode"]
+    get_run_logger().info("Submitted, HTTP %s", status)
+    if status != 200:
+        raise RuntimeError(f"Submission returned HTTP {status}")
+    return status
 
 
 
 @flow(name="dp2-pipeline", log_prints=True)
 def dp2_pipeline():
     queue_url = populate_queue()
+    prepare_landing()
     monitor_queue(queue_url)
+    collect_messages(queue_url)  # ← fills it with 21 rows
+
+    dbt_build()
     # TODO (Lesson 10): collect_messages -> dbt_build -> read_phrase -> submit_solution
 
 
