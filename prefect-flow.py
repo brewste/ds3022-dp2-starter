@@ -84,7 +84,6 @@ def prepare_landing() -> None:
     with duckdb.connect(DUCKDB_PATH) as con:
         con.execute("create schema if not exists raw")
 
-
         # Use "if not exists" so restarting the flow does not erase fragments already stored.
         # Make order_no the primary key since each fragment has a unique order number
         # Prevents the same fragment from being stored duplicate after a crash
@@ -108,7 +107,10 @@ def collect_messages(queue_url: str, expected: int = 21,
     # TODO (Checkpoint B): MessageAttributeNames=["All"] and resp.get("Messages", [])
 
     logger = get_run_logger()
-    deadline = time.monotonic() + timeout_s
+    
+    #Use a timeout so the pipeline fails clearly, rather than hanging forever
+    deadline = time.monotonic() + timeout_s 
+
     with duckdb.connect(DUCKDB_PATH) as con:
         while time.monotonic() < deadline:
             stored, c = stored_count(con), get_counts(queue_url)
@@ -121,6 +123,8 @@ def collect_messages(queue_url: str, expected: int = 21,
                                        MaxNumberOfMessages=10,
                                        MessageAttributeNames=["All"],
                                        WaitTimeSeconds=10)
+            
+            #Handle empty/delayed responses without crashing
             for msg in resp.get("Messages", []):
                 a = msg["MessageAttributes"]
 
@@ -130,6 +134,7 @@ def collect_messages(queue_url: str, expected: int = 21,
                              a["word"]["StringValue"]])
                 
                 
+                #Delete each message using its ReceiptHandle after storing it
                 sqs.delete_message(QueueUrl=queue_url,
                                    ReceiptHandle=msg["ReceiptHandle"])
         stored = stored_count(con)
@@ -138,10 +143,19 @@ def collect_messages(queue_url: str, expected: int = 21,
 
 
 
+
 @task
 def dbt_build() -> None:
     """Run `dbt build --project-dir dbt --profiles-dir dbt`; raise if anything fails."""
     # TODO (Checkpoint C)
+    
+    res = dbtRunner().invoke(["build", "--project-dir", "dbt",
+                              "--profiles-dir", "dbt"])
+    if not res.success:
+        raise RuntimeError("dbt tests failed: not submitting")
+    get_run_logger().info("dbt build passed: all tests green")
+
+
     raise NotImplementedError
 
 
