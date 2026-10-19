@@ -1,5 +1,12 @@
 # DS 3022 Data Project 2 (Fall 2026): The SQS Puzzle
+---
 
+- Checkpoint D Receipt: 
+python kit/check_submission.py --keep
+PASS  vyb7mr / prefect  receipt: 8F0DF768E0
+
+
+---
 This data project is a puzzle. Your goal is to put the pieces back together in the right order.
 
 You will write a **Prefect** data pipeline that retrieves 21 messages from an SQS queue, parses their contents, and reassembles a complete phrase from the fragments, one word per message. Your pipeline can run a single time to produce a complete result, or it can run on a schedule. Design your workflow however you see fit. You can run it as many times as you like while testing.

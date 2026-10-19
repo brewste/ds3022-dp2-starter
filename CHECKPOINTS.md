@@ -9,8 +9,8 @@ Update **PROGRESS.md** (done / next / blocked) at the end of every work session.
 - [x] `populate_queue` POSTs to the scatter API and logs your queue URL
 - [x] `get_counts` and `monitor_queue` log the visible, not visible and delayed counts until Delayed reaches 0
 - [x] The flow run is **Completed** and visible in the Prefect dashboard; screenshot saved in `docs/`
-- [ ] DAG sketch saved as `docs/dag.jpg`; polling strategy explained in your README
-- [ ] `PROGRESS.md` updated and everything pushed
+- [x] DAG sketch saved as `docs/dag.jpg`; polling strategy explained in your README
+- [x] `PROGRESS.md` updated and everything pushed
 
 ## Checkpoints B to D: required, target for Lesson 10 (Thu 08 Oct)
 
@@ -18,26 +18,26 @@ Aim to finish B, C and D in Lesson 10. If you do not finish in class, complete t
 
 ## Checkpoint B: collect without losing anything
 
-- [ ] `collect_messages` receives until 21 fragments are stored or a timeout is reached, logging progress
-- [ ] Uses `MessageAttributeNames=["All"]` and `resp.get("Messages", [])`
-- [ ] Each fragment is inserted into `raw.fragments` (DuckDB) **before** `delete_message`
-- [ ] After a run, all three queue counters are 0 (no dangling messages)
-- [ ] Clear failure message if fewer than 21 fragments arrive before the timeout
+- [x] `collect_messages` receives until 21 fragments are stored or a timeout is reached, logging progress
+- [x] Uses `MessageAttributeNames=["All"]` and `resp.get("Messages", [])`
+- [x] Each fragment is inserted into `raw.fragments` (DuckDB) **before** `delete_message`
+- [x] After a run, all three queue counters are 0 (no dangling messages)
+- [x] Clear failure message if fewer than 21 fragments arrive before the timeout
 
 ## Checkpoint C: dbt quality gate
 
-- [ ] `dbt/models/staging/stg_fragments.sql` (integer `order_no`, cleaned `word`, safe against duplicates)
-- [ ] `dbt/models/staging/schema.yml` with generic tests
-- [ ] A singular test in `dbt/tests/` for "exactly 21 fragments, no gaps"
-- [ ] `dbt/models/marts/assembled_phrase.sql` returns the ordered phrase
-- [ ] You made the tests **fail on purpose** (delete a row, duplicate a row in `raw.fragments`) and then pass again; screenshots in `docs/`
-- [ ] The flow's dbt task raises on failure, so submission never runs on a bad phrase
+- [x] `dbt/models/staging/stg_fragments.sql` (integer `order_no`, cleaned `word`, safe against duplicates)
+- [x] `dbt/models/staging/schema.yml` with generic tests
+- [x] A singular test in `dbt/tests/` for "exactly 21 fragments, no gaps"
+- [x] `dbt/models/marts/assembled_phrase.sql` returns the ordered phrase
+- [x] You made the tests **fail on purpose** (delete a row, duplicate a row in `raw.fragments`) and then pass again; screenshots in `docs/`
+- [x] The flow's dbt task raises on failure, so submission never runs on a bad phrase
 
 ## Checkpoint D: submit and verify
 
-- [ ] `submit_solution` sends `uvaid`, `phrase`, `platform="prefect"` to `dp2-submit` and logs the HTTP status (200)
-- [ ] `python kit/check_submission.py` prints `PASS`; receipt code pasted in your README
-- [ ] `git status` shows no `.env`, `.duckdb`, `dbt/target/` or log files
+- [x] `submit_solution` sends `uvaid`, `phrase`, `platform="prefect"` to `dp2-submit` and logs the HTTP status (200)
+- [x] `python kit/check_submission.py` prints `PASS`; receipt code pasted in your README
+- [x] `git status` shows no `.env`, `.duckdb`, `dbt/target/` or log files
 
 ## Checkpoint E: optional stretch (any order, before Lesson 11)
 

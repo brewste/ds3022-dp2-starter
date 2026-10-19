@@ -168,23 +168,17 @@ def dbt_build() -> None:
 
 @task
 def read_phrase() -> str:
-    """Read the phrase from the dbt mart model in DuckDB."""
-
-    logger = get_run_logger()
-
     with duckdb.connect(DUCKDB_PATH) as con:
-        result = con.execute(
-            "SELECT phrase FROM assembled_phrase"
-        ).fetchone()
-
-    phrase = result[0]
-    logger.info("Assembled phrase: %s", phrase)
-
+        n, phrase = con.execute("select fragment_count, phrase "
+                                "from assembled_phrase").fetchone()
+    get_run_logger().info("Assembled %d fragments: %s", n, phrase)
     return phrase
 
 
+
+
 @task(retries=2, retry_delay_seconds=5)
-def send_solution(uvaid, phrase, platform):
+def submit_solution(phrase: str, platform: str = "prefect") -> int:
     url = sqs.get_queue_url(QueueName="dp2-submit")["QueueUrl"]
     resp = sqs.send_message(
         QueueUrl=url, MessageBody="dp2 solution",
@@ -199,7 +193,6 @@ def send_solution(uvaid, phrase, platform):
     return status
 
 
-
 @flow(name="dp2-pipeline", log_prints=True)
 def dp2_pipeline():
     queue_url = populate_queue()
@@ -208,7 +201,12 @@ def dp2_pipeline():
     collect_messages(queue_url)  # ← fills it with 21 rows
 
     dbt_build()
+
+
+    phrase = read_phrase()
+    submit_solution(phrase)
     # TODO (Lesson 10): collect_messages -> dbt_build -> read_phrase -> submit_solution
+
 
 
 if __name__ == "__main__":
