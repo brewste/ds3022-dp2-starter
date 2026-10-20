@@ -37,7 +37,7 @@ DUCKDB_PATH = os.environ.get("DP2_DUCKDB", "dp2.duckdb")
 sqs = boto3.client("sqs")  # the endpoint comes from AWS_ENDPOINT_URL_SQS
 
 
-@task(retries=3, retry_delay_seconds=5)
+@task() #no retry loop for populate_queue
 def populate_queue() -> str:
     """POST to the scatter API and return your queue URL."""
     logger = get_run_logger()
