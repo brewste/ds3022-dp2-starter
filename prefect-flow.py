@@ -89,8 +89,24 @@ def prepare_landing() -> None:
                 order_no varchar,
                 word varchar,
                 received_at timestamp
-            )
-        """)
+            ) """)
+        
+        con.execute("create or replace table raw.rejects ("
+                    "message_id varchar, attributes varchar, "
+                    "received_at timestamp)")
+
+
+def parse(msg) -> tuple[str, str] | None:
+    a = msg.get("MessageAttributes", {})
+    try:
+        order_no = a["order_no"]["StringValue"]
+        word = a["word"]["StringValue"]
+    except KeyError:
+        return None                   
+    if not order_no.isdigit():
+        return None                      
+    return order_no, word
+
 
 def stored_count(con) -> int:
     return con.execute("select count(distinct order_no) "
@@ -101,7 +117,7 @@ def stored_count(con) -> int:
 def collect_messages(queue_url: str, expected: int = 21,
                      timeout_s: int = 1200) -> int:
     """Receive, land in DuckDB, then delete. Return how many fragments are stored."""
-    # TODO (Checkpoint B): MessageAttributeNames=["All"] and resp.get("Messages", [])
+   
 
     logger = get_run_logger()
     
@@ -123,22 +139,18 @@ def collect_messages(queue_url: str, expected: int = 21,
             
             #Handle empty/delayed responses without crashing
             for msg in resp.get("Messages", []):
-                a = msg["MessageAttributes"]
-
-                order_no = a["order_no"]["StringValue"]
-                word = a["word"]["StringValue"]
-
-                # If a message was previously stored but not deleted before a crash,
-                # do not store the same order number again when SQS redelivers it.
-                con.execute("""
-                    insert into raw.fragments
-                    select ?, ?, current_timestamp
-                    where not exists (
-                        select 1
-                        from raw.fragments
-                        where order_no = ?
-                    )
-                """, [order_no, word, order_no])
+                fragment = parse(msg)
+                if fragment is None:              # poison message
+                    logger.warning("Rejected malformed message %s",
+                                   msg["MessageId"])
+                    con.execute("insert into raw.rejects "
+                                "values (?, ?, current_timestamp)",
+                                [msg["MessageId"],
+                                 str(msg.get("MessageAttributes"))])
+                else:
+                    con.execute("insert into raw.fragments "
+                                "values (?, ?, current_timestamp)",
+                                list(fragment))
                         
                 #Delete each message using its ReceiptHandle after storing it
                 sqs.delete_message(QueueUrl=queue_url,
@@ -155,7 +167,7 @@ def collect_messages(queue_url: str, expected: int = 21,
 @task
 def dbt_build() -> None:
     """Run `dbt build --project-dir dbt --profiles-dir dbt`; raise if anything fails."""
-    # TODO (Checkpoint C)
+    
     
     res = dbtRunner().invoke(["build", "--project-dir", "dbt",
                               "--profiles-dir", "dbt"])
@@ -205,7 +217,7 @@ def dp2_pipeline():
 
     phrase = read_phrase()
     submit_solution(phrase)
-    # TODO (Lesson 10): collect_messages -> dbt_build -> read_phrase -> submit_solution
+    
 
 
 

@@ -5,6 +5,13 @@
 python kit/check_submission.py --keep
 PASS  vyb7mr / prefect  receipt: 8F0DF768E0
 
+- CHECKPOINT F Receipt:
+PASS  vyb7mr / prefect  receipt: 8F0DF768E0
+
+
+README section "Chaos round": what broke, why, and how you fixed it
+
+A screenshot showing that two consecutive Chaos rounds were executed correctly lies in the docs section under the name "CheckpointF_chaosmode.png". Additionally, "checkpointF_chaosproof.png" shows evidence that the flow properly handled a "Rejected" warning and its counters went to zero, demonstrating that both runs succesfully stored 21 fragments. 
 
 ---
 This data project is a puzzle. Your goal is to put the pieces back together in the right order.
