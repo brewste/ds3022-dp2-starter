@@ -1,17 +1,115 @@
 # DS 3022 Data Project 2 (Fall 2026): The SQS Puzzle
----
 
-- Checkpoint D Receipt: 
-python kit/check_submission.py --keep
-PASS  vyb7mr / prefect  receipt: 8F0DF768E0
+## **OVERALL**
 
-- CHECKPOINT F Receipt:
-PASS  vyb7mr / prefect  receipt: 8F0DF768E0
+### **What is this project?** 
+This project builds an **end to end Prefect data pipeline** that collects randomly delayed message fragments from an SQS queue and ultimately assembles and submits them as a complete phrase. The pipeline uses DuckDB to store the collected data and dbt to test and transform it before the final submission.
 
 
-README section "Chaos round": what broke, why, and how you fixed it
+### **How to setup and run?**
+* After cloning the repository and configuring the required variables in .env (including UVA_ID, the local SQS endpoint, and the provided DP2 settings), the project runs across **four active components/terminals!**
+    * **The local SQS environment:** Start the Moto SQS emulator with `moto_server -p 9324`. This acts like AWS SQS locally and holds the queues and messages that the pipeline sends, receives, and deletes.
+    * **The scatter API server:**  Run `python kit/scatter_api.py`. This API creates the SQS queue and populates it with the 21 randomly delayed message fragments after receiving the pipeline’s POST request.
+    * **The Prefect server/dashboard:** runs Prefect’s local server so the pipeline’s flow and task states, logs, successes, and failures can be monitored through the Prefect dashboard. Run the commands `prefect config set PREFECT_API_URL="http://127.0.0.1:4200/api"` and `prefect server start`
+    * **The Prefect flow itself:** This is where the main pipeline flow is actually run, carrying the data from the initial POST request through final submission...
 
-A screenshot showing that two consecutive Chaos rounds were executed correctly lies in the docs section under the name "CheckpointF_chaosmode.png". Additionally, "checkpointF_chaosproof.png" shows evidence that the flow properly handled a "Rejected" warning and its counters went to zero, demonstrating that both runs succesfully stored 21 fragments. 
+
+**From the repo-root, the pipeline runs end to end with one command: ``` python prefect-flow.py```**
+
+This is the file that hosts the Prefect flow and its tasks, which perform the following: 
+
+1. POST request to Scatter API
+2. Monitoring and collecting the resulting queue messages
+3. Landing each fragment in DuckDB before deleting it from the queue
+4. Dbt as a quality gate, testing and transforming the data before assembling as an ordered phrase
+5. Reads from DuckDB and makes final SQS submission to dp2-submit queue
+
+
+
+## **Checkpoint A**
+
+This bit of code populates the SQS queue and monitors the randomly delayed messages until they become available. 
+
+* In **populate_queue()**, the pipeline sends one POST request to SCATTER_URL and returns the sqs_url needed by the rest of the flow. 
+* The **get_counts()** helper then uses get_queue_attributes() to retrieve three important queue states: visible, in-flight, and delayed messages.
+
+**An important element: polling strategy**
+
+Because the messages are released after random delays, *checking these counters only once would not be enough.* Instead, **monitor_queue() uses a polling strategy— I chose to have it repeatedly call get_counts(queue_url) inside a while loop** to get an updated view of the queue. 
+
+* This gives the pipeline an updated view of the queue without constantly making unnecessary requests, and it can **continue as soon as c["delayed"] == 0** rather than waiting a predetermined amount of time. 
+* I also use time.monotonic() and timeout_s to set a deadline, so the task **raises a TimeoutError** rather than continuing to poll forever if something goes wrong.
+* **I rejected checking the queue only once** because some messages could still be delayed, and I also **avoided continuously checking with no pause** because that would create unnecessary requests while the queue had not changed. 
+* **A fixed wait time was also less appropriate** because the delays are random: a short wait could continue too early, while a long wait could waste time after all messages were already available.
+
+
+For Checkpoint A, I have also provided an architecture/DAG diagram with task boundaries and dependencies. The diagram shows the boundaries between each Prefect task, the order in which data moves through the pipeline, and the dependencies between tasks. **The DAG diagram can be found in docs/DAG_diagram.png**
+
+
+
+## **Checkpoint B**
+* In collect_messages(), each SQS message is **first received with receive_message(), then persisted to DuckDB in raw.fragments, and only afterward deleted from the queue using its ReceiptHandle.**
+    * **I chose this order to protect against data loss:** if the flow crashes before the DuckDB insert, the message has not been deleted and can become available to be received again; if it crashes after the insert but before deletion, the message may be received again and create a duplicate raw row rather than being lost completely. 
+* **To make this behavior idempotent** (what happens if the flow crashes between steps), stored_count() uses *count(distinct order_no)* so repeated fragments do not increase the number of collected fragments. stg_fragments.sql uses *SELECT DISTINCT* to remove identical duplicate rows before the dbt tests and phrase assembly.
+    * This means a retry may repeat work after a crash. But, an identical repeated message does not change the final result.
+
+
+
+## **Checkpoint C**
+dbt serves as the pipeline’s quality gate, testing the collected fragments before the final phrase can be assembled and submitted. I executed **two dbt tests** where I intentionally modified the raw data to confirm that the quality gate could detect invalid data.
+
+* I removed one of the 21 fragments, causing the sequence test to fail. Evidence: **docs/checkpointC_failedtest1.png**
+* I added a conflicting fragment with an existing order_no, causing the uniqueness test to fail. **Evidence: docs/checkpointC_failedtest2.png**
+* After restoring valid data, all dbt tests passed successfully. Evidence: **docs/checkpointC_completedtest.png**
+
+
+
+## **Checkpoint D**
+Checkpoint D connects the completed tasks into a single Prefect flow. The submit_solution() task checks and logs the HTTP status code to confirm a successful submission. The final submission was verified using kit/check_submission.py. 
+
+* **Proof:** 
+
+    RECEIPT: 8F0DF768E0
+
+    Screenshot of this recipt can be found at **docs/checkpointD_checksubmission.png**
+
+
+
+## **CHECKPOINT F**
+During this checkpoint I tested the pipeline on both a Delayed run (longer message delays) and a Chaos run (poison messages).
+
+**Delayed Run** (DP2_FAST=0, which uses the full 30–900 second message delays.)
+The pipeline successfully continued polling as messages became available with longer delays and completed end to end.
+
+* **Proof:** 
+
+   RECEIPT: 8F0DF768E0
+
+   Screenshot of full delayed run can be found at **docs/checkpointF_delayed.png**
+
+
+
+
+**Chaos Round**
+
+* **What broke:** During my first Chaos run, collect_messages() crashed with ```KeyError: 'word'``` as the log line. My original code assumed every message contained both order_no and word, so the malformed (“poison”) message caused the task to fail before the queue could be emptied.
+
+* **Why:** The code directly accessed a["word"]["StringValue"], but the poison message did not contain a word attribute. This showed that the original collector could handle normal messages but not malformed ones.
+
+* **How I fixed it:** I added **parse()** to validate messages before inserting them. Malformed messages now return None, produce a “Rejected malformed message” warning, and are stored in raw.rejects. Also important, the rejected message is still deleted using its ReceiptHandle. If it was simply skipping it would allow it to reappear in the queue and prevent the counters from ever reaching zero.
+
+* **Proof:**
+    * **docs/CheckpointF_chaosmode.png** shows two consecutive successful chaos rounds.
+    * **docs/checkpointF_chaosproof.png** shows a "Rejected" warning followed by the queue counters reaching zero, demonstrating that both runs succesfully stored 21 fragments. 
+
+
+
+
+
+
+
+
+## ORIGINAL README
 
 ---
 This data project is a puzzle. Your goal is to put the pieces back together in the right order.
